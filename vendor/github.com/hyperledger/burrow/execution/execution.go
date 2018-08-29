@@ -102,8 +102,8 @@ func NewBatchChecker(backend ExecutorState, blockchain *bcm.Blockchain, logger *
 	)
 }
 
-func NewBatchCommitter(backend ExecutorState, blockchain *bcm.Blockchain, emitter event.Publisher, logger *logging.Logger,
-	options ...ExecutionOption) BatchCommitter {
+func NewBatchCommitter(backend ExecutorState, blockchain *bcm.Blockchain, emitter event.Publisher,
+	logger *logging.Logger, options ...ExecutionOption) BatchCommitter {
 
 	exe := newExecutor("CommitCache", true, backend, blockchain, emitter,
 		logger.WithScope("NewBatchCommitter"), options...)
@@ -181,41 +181,39 @@ func (exe *executor) Execute(txEnv *txs.Envelope) (txe *exec.TxExecution, err er
 		"run_call", exe.runCall,
 		"tx_hash", txEnv.Tx.Hash())
 
-	logger.TraceMsg("Executing transaction", "tx", txEnv.String())
+	logger.InfoMsg("Executing transaction", "tx", txEnv.String())
 
 	// Verify transaction signature against inputs
 	err = txEnv.Verify(exe.stateCache, exe.blockchain.ChainID())
 	if err != nil {
+		logger.InfoMsg("Transaction Verify failed", structure.ErrorKey, err)
 		return nil, err
 	}
 
 	if txExecutor, ok := exe.contexts[txEnv.Tx.Type()]; ok {
 		// Establish new TxExecution
 		txe := exe.blockExecution.Tx(txEnv)
+		// Validate inputs and check sequence numbers
+		err = txEnv.Tx.ValidateInputs(exe.stateCache)
+		if err != nil {
+			logger.InfoMsg("Transaction validate failed", structure.ErrorKey, err)
+			return nil, err
+		}
 		err = txExecutor.Execute(txe)
 		if err != nil {
+			logger.InfoMsg("Transaction execution failed", structure.ErrorKey, err)
+			return nil, err
+		}
+		// Initialise public keys and increment sequence numbers for Tx inputs
+		err = exe.updateSignatories(txEnv)
+		if err != nil {
+			logger.InfoMsg("Updating signatories failed", structure.ErrorKey, err)
 			return nil, err
 		}
 		// Return execution for this tx
 		return txe, nil
 	}
 	return nil, fmt.Errorf("unknown transaction type: %v", txEnv.Tx.Type())
-}
-
-func (exe *executor) finaliseBlockExecution(header *abciTypes.Header) (*exec.BlockExecution, error) {
-	if header != nil && uint64(header.Height) != exe.blockExecution.Height {
-		return nil, fmt.Errorf("trying to finalise block execution with height %v but passed Tendermint"+
-			"block header at height %v", exe.blockExecution.Height, header.Height)
-	}
-	// Capture BlockExecution to return
-	be := exe.blockExecution
-	// Set the header when provided
-	be.BlockHeader = exec.BlockHeaderFromHeader(header)
-	// Start new execution for the next height
-	exe.blockExecution = &exec.BlockExecution{
-		Height: exe.blockExecution.Height + 1,
-	}
-	return be, nil
 }
 
 func (exe *executor) Commit(blockHash []byte, blockTime time.Time, header *abciTypes.Header) (_ []byte, err error) {
@@ -258,13 +256,17 @@ func (exe *executor) Commit(blockHash []byte, blockTime time.Time, header *abciT
 	// Now state is committed publish events
 	for _, txe := range blockExecution.TxExecutions {
 		publishErr := exe.publisher.Publish(context.Background(), txe, txe.Tagged())
-		exe.logger.InfoMsg("Error publishing TxExecution",
-			"tx_hash", txe.TxHash,
-			structure.ErrorKey, publishErr)
+		if publishErr != nil {
+			exe.logger.InfoMsg("Error publishing TxExecution",
+				"tx_hash", txe.TxHash,
+				structure.ErrorKey, publishErr)
+		}
 	}
 	publishErr := exe.publisher.Publish(context.Background(), blockExecution, blockExecution.Tagged())
-	exe.logger.InfoMsg("Error publishing TxExecution",
-		"height", blockExecution.Height, structure.ErrorKey, publishErr)
+	if publishErr != nil {
+		exe.logger.InfoMsg("Error publishing BlockExecution",
+			"height", blockExecution.Height, structure.ErrorKey, publishErr)
+	}
 	// Commit to our blockchain state which will checkpoint the previous app hash by saving it to the database
 	// (we know the previous app hash is safely committed because we are about to commit the next)
 	totalPowerChange, totalFlow, err := exe.blockchain.CommitBlock(blockTime, blockHash, hash)
@@ -303,4 +305,50 @@ func (exe *executor) GetStorage(address crypto.Address, key binary.Word256) (bin
 	exe.RLock()
 	defer exe.RUnlock()
 	return exe.stateCache.GetStorage(address, key)
+}
+
+func (exe *executor) finaliseBlockExecution(header *abciTypes.Header) (*exec.BlockExecution, error) {
+	if header != nil && uint64(header.Height) != exe.blockExecution.Height {
+		return nil, fmt.Errorf("trying to finalise block execution with height %v but passed Tendermint"+
+			"block header at height %v", exe.blockExecution.Height, header.Height)
+	}
+	// Capture BlockExecution to return
+	be := exe.blockExecution
+	// Set the header when provided
+	be.BlockHeader = exec.BlockHeaderFromHeader(header)
+	// Start new execution for the next height
+	exe.blockExecution = &exec.BlockExecution{
+		Height: exe.blockExecution.Height + 1,
+	}
+	return be, nil
+}
+
+// Capture public keys and update sequence numbers
+func (exe *executor) updateSignatories(txEnv *txs.Envelope) error {
+	for _, sig := range txEnv.Signatories {
+		// pointer dereferences are safe since txEnv.Validate() is run by txEnv.Verify() above which checks they are
+		// non-nil
+		acc, err := state.GetMutableAccount(exe.stateCache, *sig.Address)
+		if err != nil {
+			return fmt.Errorf("error getting account on which to set public key: %v", *sig.Address)
+		}
+		// Important that verify has been run against signatories at this point
+		if sig.PublicKey.Address() != acc.Address() {
+			return fmt.Errorf("unexpected mismatch between address %v and supplied public key %v",
+				acc.Address(), sig.PublicKey)
+		}
+		acc.SetPublicKey(*sig.PublicKey)
+
+		exe.logger.TraceMsg("Incrementing sequence number Tx signatory/input",
+			"tag", "sequence",
+			"account", acc.Address(),
+			"old_sequence", acc.Sequence(),
+			"new_sequence", acc.Sequence()+1)
+		acc.IncSequence()
+		err = exe.stateCache.UpdateAccount(acc)
+		if err != nil {
+			return fmt.Errorf("error updating account after setting public key: %v", err)
+		}
+	}
+	return nil
 }

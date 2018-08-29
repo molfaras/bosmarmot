@@ -1,22 +1,13 @@
-This is a major (pre-1.0.0) release that introduces the ability to change the validator set through GovTx, transaction execution history, and fuller GRPC endpoint.
+### Changed
+- Upgraded to Tendermint 0.23.0
+- Validator Set Power now takes Address
+- RPC/TM config renamed to RPC/Info
 
-#### Breaking changes
-- Address format has been changed (by Tendermint and we have followed suite) - conversion is possible but simpler to regenerated keys
-- JSON-RPC interface has been removed
-- burrow-client has been removed
-- rpc/TM methods for events and broadcast have been removed
+### Added
+- Burrow deploy creates devdoc
+- Docker image has org.label-schema labels
 
-#### Features
-- Tendermint 0.24.4
-- GovTx GRPC service. The validator set can be now be changed.
-- Enhanced GRPC services: NameReg, Transaction index, blocks service
-- Events GRPC service
-- Transaction Service can set value transferred
-
-#### Improvements
-- The output of "burrow keys export" can be templated
-
-#### Bug fixes
-- Fixed panic on nil bounds for blocks service
-
+### Fixed
+- Upgrade to IAVL 0.10.0 and load previous versions immutably on boot - for chains with a long history > 20 minute load times could be observed because every previous root was being loaded from DB rather than lightweight version references as was intended
+- Metrics server does not panic on empty block metas and recovers from other panics
 

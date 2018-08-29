@@ -8,7 +8,7 @@
 'use strict'
 
 var Service = require('./service')
-var eventStream = require('./stream.js')
+var events = require('./events.js')
 
 var Pipe = require('./pipe')
 var ContractManager = require('./contractManager')
@@ -21,6 +21,7 @@ var Namereg = require('./namereg')
  * @returns {Burrow} - A new instance of the Burrow class.
  */
 exports.createInstance = function (URL, account, options) {
+  URL = (typeof URL === 'string' ? URL : URL.host + ':' + URL.port)
   return new Burrow(URL, account, options)
 }
 
@@ -41,13 +42,13 @@ function Burrow (URL, account, options) {
     this.account = account
   }
 
-  this._stream = Service('rpcevents.proto', 'rpcevents', 'ExecutionEvents', URL)
+  this.executionEvents = Service('rpcevents.proto', 'rpcevents', 'ExecutionEvents', URL)
 
   this.transact = Service('rpctransact.proto', 'rpctransact', 'Transact', URL)
   this.query = Service('rpcquery.proto', 'rpcquery', 'Query', URL)
 
   // This is the execution events streaming service running on top of the raw streaming function.
-  this.stream = eventStream(this._stream)
+  this.events = events(this)
 
   // Contracts stuff running on top of grpc
   this.pipe = new Pipe(this)

@@ -19,6 +19,7 @@ import (
 	"fmt"
 
 	"github.com/hyperledger/burrow/acm"
+	"github.com/hyperledger/burrow/acm/state"
 	"github.com/hyperledger/burrow/binary"
 	"github.com/hyperledger/burrow/crypto"
 	"github.com/hyperledger/burrow/event/query"
@@ -74,6 +75,10 @@ func (tx *Tx) SignBytes() ([]byte, error) {
 		return nil, fmt.Errorf("could not generate canonical SignBytes for Payload %v: %v", tx.Payload, err)
 	}
 	return bs, nil
+}
+
+func (tx *Tx) ValidateInputs(getter state.AccountGetter) error {
+	return payload.ValidateInputs(getter, tx.GetInputs())
 }
 
 // Serialisation intermediate for switching on type
@@ -158,7 +163,7 @@ func (tx *Tx) String() string {
 	if tx == nil {
 		return "Tx{nil}"
 	}
-	return fmt.Sprintf("Tx{TxHash: %X; Payload: %v}", tx.Hash(), tx.Payload)
+	return fmt.Sprintf("Tx{TxHash: %s; Payload: %v}", tx.Hash(), tx.Payload)
 }
 
 // Regenerate the Tx hash if it has been mutated or as called by Hash() in first instance

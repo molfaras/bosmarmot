@@ -9,20 +9,29 @@
 
 [[override]]
   name = "github.com/hyperledger/burrow"
-  version = "=0.20.0"
+  branch = "develop"
 
 [[override]]
   name = "github.com/tendermint/tendermint"
-  version = "=0.22.4"
+  version = "=0.23.0"
 
-[[override]]
-  name = "github.com/gogo/protobuf"
-  version = "~1.1.0"
-
-[[override]]
-  name = "github.com/golang/protobuf"
-  version = "~1.1.0"
-
+#[[override]]
+#  name = "github.com/gogo/protobuf"
+#  version = "~1.1.0"
+#
+#[[override]]
+#  name = "github.com/golang/protobuf"
+#  version = "~1.1.0"
+#
 [[override]]
   name = "google.golang.org/grpc"
   version = "~1.13.0"
+
+[[constraint]]
+  name = "github.com/go-ozzo/ozzo-validation"
+  version = "3.4.0"
+
+[[constraint]]
+  name = "golang.org/x/net"
+  revision = "292b43bbf7cb8d35ddf40f8d5100ef3837cced3f"
+
