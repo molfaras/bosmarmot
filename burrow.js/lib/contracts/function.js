@@ -150,6 +150,10 @@ var SolidityFunction = function (abi) {
           }
         }
 
+        // Added during rebase for backward compatibility
+        returnObj.tx_hash = result.Receipt.TxHash.toString('hex').toUpperCase()
+        returnObj.gas_used = result.Result.GasUsed
+        returnObj.return = returnObj.values
         // Meta Data (address, caller, height, etc)
         returnObj.contractAddress = result.Receipt.ContractAddress.toString('hex').toUpperCase()
         returnObj.height = result.Height
